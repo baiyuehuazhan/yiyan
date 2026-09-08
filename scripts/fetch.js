@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * 每日抓取一句「今日精选」：
- *   1. 调用一言 API（免 key）取 1 条；
+ * 每日抓取一句快照（供「历史回看」，不再默认展示）：
+ *   1. 调用一言 API（免 key、全分类随机）取 1 条；
  *   2. 失败则从内置 data/quotes.json 随机取 1 条；
  *   3. 写 data/snapshots/YYYY-MM-DD.json（UTC 日期）；
  *   4. 重建 data/manifest.json（倒序、保留最近 60 天）。
@@ -17,7 +17,8 @@ const SNAPSHOTS_DIR = path.join(DATA_DIR, "snapshots");
 const MANIFEST_PATH = path.join(DATA_DIR, "manifest.json");
 const QUOTES_PATH = path.join(DATA_DIR, "quotes.json");
 
-const API = "https://v1.hitokoto.cn/?c=a&c=d&c=i&c=k&encode=json";
+// 全分类随机（不再限定 a/d/i/k）：动画/漫画/游戏/文学/原创/网络/其他/影视/诗词/网易云/哲学/抖机灵
+const API = "https://v1.hitokoto.cn/?encode=json";
 const KEEP_DAYS = 60;
 
 // 一言分类字母 → 中文
@@ -119,7 +120,7 @@ function main() {
   const snapPath = path.join(SNAPSHOTS_DIR, `${date}.json`);
 
   if (fs.existsSync(snapPath)) {
-    log(`${date} 的今日精选已存在，跳过写入（保持幂等）`);
+    log(`${date} 的快照已存在，跳过写入（保持幂等）`);
     rebuildManifest();
     return;
   }
@@ -134,7 +135,7 @@ function main() {
       };
       if (!fs.existsSync(SNAPSHOTS_DIR)) fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
       fs.writeFileSync(snapPath, JSON.stringify(snapshot, null, 2) + "\n", "utf8");
-      log(`已写入今日精选: data/snapshots/${date}.json`);
+      log(`已写入快照: data/snapshots/${date}.json`);
       rebuildManifest();
     })
     .catch((err) => {

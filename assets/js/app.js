@@ -2,7 +2,8 @@
 (function () {
   "use strict";
 
-  var API = "https://v1.hitokoto.cn/?c=a&c=d&c=i&c=k&encode=json";
+  // 全分类随机（不再限定 a/d/i/k）：动画/漫画/游戏/文学/原创/网络/其他/影视/诗词/网易云/哲学/抖机灵
+  var API = "https://v1.hitokoto.cn/?encode=json";
   var MANIFEST_URL = "data/manifest.json";
   var QUOTES_URL = "data/quotes.json";
 
@@ -40,7 +41,7 @@
     current: null,      // 当前展示的 quote { text, from, author, type, source }
     manifest: null,     // 清单
     quotes: [],         // 内置兜底库
-    isFeatured: false   // 当前是否今日精选
+    isFeatured: false   // 当前是否来自每日快照（历史回看）
   };
 
   /* ---------- 工具 ---------- */
@@ -292,7 +293,7 @@
             type: s.quote.type || "", source: "snapshot"
           }, { featured: true });
           closeModal("historyModal");
-          toast(s.date + " 的今日精选");
+          toast(s.date + " 的快照");
         }
       });
       els.historyList.appendChild(li);
@@ -358,25 +359,10 @@
   }
 
   /* ---------- 初始化 ---------- */
-  function showFeatured() {
-    var snaps = (state.manifest && state.manifest.snapshots) || [];
-    if (!snaps.length) return false;
-    var latest = snaps[0];
-    if (!latest.quote) return false;
-    var isToday = latest.date === todayStr();
-    renderQuote({
-      text: latest.quote.text, from: latest.quote.from || "",
-      author: latest.quote.author || "", type: latest.quote.type || "",
-      source: "snapshot"
-    }, { featured: true });
-    els.dateLabel.textContent = fmtDateLabel(new Date());
-    return true;
-  }
-
   function init() {
     els.dateLabel.textContent = fmtDateLabel(new Date());
 
-    // 先并行加载清单与本地库
+    // 并行加载快照清单与本地兜底库（历史回看 / 收藏兜底用）
     var pManifest = fetchJSON(MANIFEST_URL).catch(function () { return null; });
     var pQuotes = fetchJSON(QUOTES_URL).catch(function () { return { quotes: [] }; });
 
@@ -384,17 +370,15 @@
       state.manifest = res[0];
       state.quotes = (res[1] && res[1].quotes) || [];
 
-      var shown = showFeatured();
-      if (!shown) {
-        // 没有快照：直接尝试实时 API，失败回退本地
-        fetchHitokoto()
-          .then(function (q) { renderQuote(q, { featured: false }); })
-          .catch(function () {
-            var q = randomLocalQuote();
-            if (q) renderQuote(q, { featured: false });
-            else els.quoteText.textContent = "欢迎使用每日一句，点「换一句」看看吧。";
-          });
-      }
+      // 完全随机模式：每次进入页面都实时随机取一句（全分类），
+      // 不再固定展示“今日精选”快照；每日快照仅保留在「历史回看」中。
+      fetchHitokoto()
+        .then(function (q) { renderQuote(q, { featured: false }); })
+        .catch(function () {
+          var q = randomLocalQuote();
+          if (q) renderQuote(q, { featured: false });
+          else els.quoteText.textContent = "欢迎使用每日一句，点「换一句」看看吧。";
+        });
     });
 
     // 事件绑定
