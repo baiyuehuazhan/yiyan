@@ -2,7 +2,7 @@
 
 一句值得回味的话，配作者与出处。极简、有意境、纯静态、零构建。
 
-线上访问：https://liumingmusic.github.io/daily-quote/
+线上访问：https://yiyan.hzxq.asia/
 
 ## 特性
 
