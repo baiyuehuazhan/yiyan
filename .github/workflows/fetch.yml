@@ -1,4 +1,4 @@
-name: 每日精选抓取
+name: 每日快照抓取
 
 on:
   schedule:
@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: "20"
 
-      - name: 抓取今日精选
+      - name: 抓取今日快照
         run: node scripts/fetch.js
 
       - name: 提交变更（如有）
@@ -34,7 +34,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "无变更，跳过提交"
           else
-            git commit -m "chore: 更新今日精选快照 $(date -u +%Y-%m-%d)"
+            git commit -m "chore: 更新每日快照 $(TZ=Asia/Shanghai date +%F)"
             git push
-            echo "已推送今日精选"
+            echo "已推送每日快照"
           fi

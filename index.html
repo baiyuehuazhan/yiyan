@@ -2,27 +2,78 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#faf7f2" />
-  <meta name="description" content="每日一句 · 一句值得回味的话，配作者与出处。极简、有意境。" />
-  <title>每日一句</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f5f0e8" />
+  <meta name="description" content="每日一句 · 每次打开都有一句值得回味的话,配作者与出处。全分类完全随机,纯净无打扰。" />
+  <title>每日一句 · Daily Quote</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600&family=Ma+Shan+Zheng&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/style.css" />
 </head>
 <body>
+
+  <!-- 背景极光光斑 -->
+  <div class="aurora" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+
+  <!-- 图标库 -->
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+      <path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+    </symbol>
+    <symbol id="i-star" viewBox="0 0 24 24">
+      <path d="M12 3.4l2.5 5.3 5.9.7-4.4 4 1.2 5.8L12 16.5l-5.2 2.7 1.2-5.8-4.4-4 5.9-.7z"
+        fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24">
+      <path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+      <path d="M20 3.5v4h-4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
+    </symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24">
+      <path d="M12 20.2S3.5 15 3.5 9.3C3.5 6.4 5.7 4.2 8.4 4.2c1.5 0 2.9.7 3.6 1.9.7-1.2 2.1-1.9 3.6-1.9 2.7 0 4.9 2.2 4.9 5.1 0 5.7-8.5 10.9-8.5 10.9z"
+        fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+    </symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24">
+      <rect x="9" y="9" width="11" height="11" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7" />
+      <path d="M5.5 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+    </symbol>
+    <symbol id="i-share" viewBox="0 0 24 24">
+      <circle cx="6" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+      <circle cx="17.5" cy="5.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+      <circle cx="17.5" cy="18.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+      <path d="M8.2 10.9l7.2-4.2M8.2 13.1l7.2 4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+    </symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24">
+      <path d="M12 2l1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9z" fill="currentColor" />
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 24 24">
+      <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+    </symbol>
+  </svg>
+
   <main class="card" id="card">
     <header class="topbar">
-      <span id="dateLabel" class="date">——</span>
+      <div class="date-wrap">
+        <span class="date-dot" aria-hidden="true"></span>
+        <span id="dateLabel" class="date">——</span>
+      </div>
       <div class="top-actions">
-        <button id="historyBtn" class="icon-btn" type="button">历史</button>
-        <button id="favBtn" class="icon-btn" type="button" aria-label="我的收藏">★</button>
+        <button id="historyBtn" class="ghost-btn" type="button" aria-label="历史快照" title="历史快照">
+          <svg class="ico" aria-hidden="true"><use href="#i-clock" /></svg>
+          <span>历史</span>
+        </button>
+        <button id="favBtn" class="ghost-btn icon-only" type="button" aria-label="我的收藏" title="我的收藏">
+          <svg class="ico" aria-hidden="true"><use href="#i-star" /></svg>
+        </button>
       </div>
     </header>
 
     <section class="quote-area">
-      <span id="featuredBadge" class="badge hidden">每日快照</span>
+      <span id="featuredBadge" class="badge hidden">
+        <svg class="ico" aria-hidden="true"><use href="#i-sparkle" /></svg>
+        <span>每日快照</span>
+      </span>
       <blockquote class="quote-text" id="quoteText">正在为你取一句…</blockquote>
       <div class="quote-meta">
         <span id="quoteAuthor" class="author"></span>
@@ -32,23 +83,41 @@
     </section>
 
     <footer class="actions">
-      <button id="newBtn" class="primary-btn" type="button">换一句</button>
+      <button id="newBtn" class="primary-btn" type="button">
+        <svg class="btn-ico" aria-hidden="true"><use href="#i-refresh" /></svg>
+        <span id="newBtnText">换一句</span>
+      </button>
       <div class="secondary">
-        <button id="favAddBtn" class="round-btn" type="button" aria-label="收藏这句" title="收藏">♥</button>
-        <button id="copyBtn" class="round-btn" type="button" aria-label="复制" title="复制">⧉</button>
-        <button id="shareBtn" class="round-btn" type="button" aria-label="分享" title="分享">↗</button>
+        <button id="favAddBtn" class="round-btn" type="button" aria-label="收藏这句" title="收藏这句">
+          <svg class="ico" aria-hidden="true"><use href="#i-heart" /></svg>
+        </button>
+        <button id="copyBtn" class="round-btn" type="button" aria-label="复制" title="复制">
+          <svg class="ico" aria-hidden="true"><use href="#i-copy" /></svg>
+        </button>
+        <button id="shareBtn" class="round-btn" type="button" aria-label="分享" title="分享">
+          <svg class="ico" aria-hidden="true"><use href="#i-share" /></svg>
+        </button>
       </div>
     </footer>
   </main>
 
-  <!-- 历史回看 -->
-  <div id="historyModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="历史回看">
+  <p class="page-credit">
+    句子由 <a href="https://hitokoto.cn" target="_blank" rel="noopener nofollow">一言 Hitokoto</a> 全分类随机提供 · 按 <kbd>空格</kbd> / <kbd>→</kbd> 换一句
+  </p>
+
+  <!-- 历史快照 -->
+  <div id="historyModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="历史快照">
     <div class="modal-panel">
       <div class="modal-head">
-        <h2>历史回看</h2>
-        <button class="close-btn" data-close="historyModal" type="button" aria-label="关闭">×</button>
+        <div class="modal-title">
+          <h2>历史快照</h2>
+          <p>每天清晨自动归档一句</p>
+        </div>
+        <button class="close-btn" data-close="historyModal" type="button" aria-label="关闭">
+          <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
       </div>
-      <ul id="historyList" class="history-list"></ul>
+      <ul id="historyList" class="sheet-list"></ul>
     </div>
   </div>
 
@@ -56,15 +125,20 @@
   <div id="favModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="我的收藏">
     <div class="modal-panel">
       <div class="modal-head">
-        <h2>我的收藏</h2>
-        <button class="close-btn" data-close="favModal" type="button" aria-label="关闭">×</button>
+        <div class="modal-title">
+          <h2>我的收藏</h2>
+          <p>只存在这台设备的浏览器里</p>
+        </div>
+        <button class="close-btn" data-close="favModal" type="button" aria-label="关闭">
+          <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
       </div>
-      <ul id="favList" class="fav-list"></ul>
-      <p id="favEmpty" class="empty-tip hidden">还没有收藏的句子，点击 ♥ 收藏喜欢的句子吧。</p>
+      <ul id="favList" class="sheet-list"></ul>
+      <p id="favEmpty" class="empty-tip hidden">还没有收藏的句子。<br />遇到心动的一句,点 ♥ 收藏它吧。</p>
     </div>
   </div>
 
-  <div id="toast" class="toast hidden" aria-live="polite"></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
   <script src="assets/js/app.js"></script>
 </body>

@@ -59,11 +59,11 @@ npm run fetch
 
 1. 推送到 `main` 分支；
 2. 仓库 Settings → Pages → Source 选 `Deploy from a branch` → `main` / `/ (root)`；
-3. Actions 每天自动抓取；也可手动 `Actions → 每日精选抓取 → Run workflow` 触发。
+3. Actions 每天自动抓取；也可手动 `Actions → 每日快照抓取 → Run workflow` 触发。
 
 ## 技术说明
 
 - 纯原生 HTML / CSS / JavaScript，无任何框架、无构建步骤。
 - 前端运行时：打开页面即请求一言实时 API（全分类随机）→ 失败回退本地库；`manifest.json` 仅用于「历史回看」。
-- 快照格式见 `data/snapshots/YYYY-MM-DD.json`；`manifest.json` 保留最近 60 天。
+- 快照格式见 `data/snapshots/YYYY-MM-DD.json`（按北京时间命名）；`manifest.json` 保留最近 60 天。
 - 无任何 API key / token，所有外部接口均免鉴权。

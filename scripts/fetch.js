@@ -3,7 +3,7 @@
  * 每日抓取一句快照（供「历史回看」，不再默认展示）：
  *   1. 调用一言 API（免 key、全分类随机）取 1 条；
  *   2. 失败则从内置 data/quotes.json 随机取 1 条；
- *   3. 写 data/snapshots/YYYY-MM-DD.json（UTC 日期）；
+ *   3. 写 data/snapshots/YYYY-MM-DD.json（按北京时间命名）；
  *   4. 重建 data/manifest.json（倒序、保留最近 60 天）。
  * 同时供 GitHub Actions 与本地 node scripts/fetch.js 使用。
  */
@@ -27,12 +27,11 @@ const TYPE_MAP = {
   g: "其他", h: "影视", i: "诗词", j: "网易云", k: "哲学", l: "抖机灵"
 };
 
-function utcDateStr(d) {
+// 北京时间（UTC+8，无夏令时）的今天日期，用于快照归档命名
+function beijingDateStr(d) {
   d = d || new Date();
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  const shifted = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+  return shifted.toISOString().slice(0, 10);
 }
 
 function log(...a) { console.log("[fetch]", ...a); }
@@ -116,7 +115,7 @@ function rebuildManifest() {
 }
 
 function main() {
-  const date = utcDateStr();
+  const date = beijingDateStr();
   const snapPath = path.join(SNAPSHOTS_DIR, `${date}.json`);
 
   if (fs.existsSync(snapPath)) {

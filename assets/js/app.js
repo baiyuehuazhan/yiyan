@@ -1,56 +1,59 @@
-/* 每日一句 — 纯静态前端逻辑（零依赖） */
+/* =====================================================
+ * 每日一句 · Daily Quote — 纯静态前端逻辑（零依赖）
+ * 完全随机模式：每次打开 / 换一句 实时取一言（全分类随机）
+ * ===================================================== */
 (function () {
   "use strict";
 
-  // 全分类随机（不再限定 a/d/i/k）：动画/漫画/游戏/文学/原创/网络/其他/影视/诗词/网易云/哲学/抖机灵
-  var API = "https://v1.hitokoto.cn/?encode=json";
+  var API = "https://v1.hitokoto.cn/?encode=json"; // 全分类：动画/漫画/游戏/文学/原创/网络/其他/影视/诗词/网易云/哲学/抖机灵
   var MANIFEST_URL = "data/manifest.json";
   var QUOTES_URL = "data/quotes.json";
+  var FAV_KEY = "dq_favs_v1";
+  var API_TIMEOUT = 8000;   // 实时 API 超时（毫秒）
+  var DATA_TIMEOUT = 6000;  // 本地 data/*.json 超时
 
-  // 一言分类字母 → 中文
   var TYPE_MAP = {
     a: "动画", b: "漫画", c: "游戏", d: "文学", e: "原创", f: "来自网络",
     g: "其他", h: "影视", i: "诗词", j: "网易云", k: "哲学", l: "抖机灵"
   };
 
-  var FAV_KEY = "dq_favs_v1";
+  function $(id) { return document.getElementById(id); }
 
   var els = {
-    dateLabel: document.getElementById("dateLabel"),
-    featuredBadge: document.getElementById("featuredBadge"),
-    quoteText: document.getElementById("quoteText"),
-    quoteAuthor: document.getElementById("quoteAuthor"),
-    quoteFrom: document.getElementById("quoteFrom"),
-    quoteType: document.getElementById("quoteType"),
-    newBtn: document.getElementById("newBtn"),
-    favAddBtn: document.getElementById("favAddBtn"),
-    copyBtn: document.getElementById("copyBtn"),
-    shareBtn: document.getElementById("shareBtn"),
-    historyBtn: document.getElementById("historyBtn"),
-    favBtn: document.getElementById("favBtn"),
-    historyModal: document.getElementById("historyModal"),
-    historyList: document.getElementById("historyList"),
-    favModal: document.getElementById("favModal"),
-    favList: document.getElementById("favList"),
-    favEmpty: document.getElementById("favEmpty"),
-    toast: document.getElementById("toast"),
-    card: document.getElementById("card")
+    dateLabel: $("dateLabel"),
+    featuredBadge: $("featuredBadge"),
+    quoteText: $("quoteText"),
+    quoteAuthor: $("quoteAuthor"),
+    quoteFrom: $("quoteFrom"),
+    quoteType: $("quoteType"),
+    newBtn: $("newBtn"),
+    newBtnText: $("newBtnText"),
+    favAddBtn: $("favAddBtn"),
+    copyBtn: $("copyBtn"),
+    shareBtn: $("shareBtn"),
+    historyBtn: $("historyBtn"),
+    favBtn: $("favBtn"),
+    historyModal: $("historyModal"),
+    historyList: $("historyList"),
+    favModal: $("favModal"),
+    favList: $("favList"),
+    favEmpty: $("favEmpty"),
+    toast: $("toast")
   };
 
   var state = {
-    current: null,      // 当前展示的 quote { text, from, author, type, source }
-    manifest: null,     // 清单
-    quotes: [],         // 内置兜底库
-    isFeatured: false   // 当前是否来自每日快照（历史回看）
+    current: null,     // 当前展示 { text, from, author, type, source }
+    manifest: null,
+    quotes: [],
+    busy: false        // 换一句进行中，防重复触发
   };
 
   /* ---------- 工具 ---------- */
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
   function todayStr(d) {
     d = d || new Date();
-    var y = d.getFullYear();
-    var m = String(d.getMonth() + 1).padStart(2, "0");
-    var day = String(d.getDate()).padStart(2, "0");
-    return y + "-" + m + "-" + day;
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
   }
 
   function fmtDateLabel(d) {
@@ -62,41 +65,57 @@
   function toast(msg) {
     els.toast.textContent = msg;
     els.toast.classList.remove("hidden");
-    // 强制重排以触发过渡
-    void els.toast.offsetWidth;
+    void els.toast.offsetWidth;            // 强制重排，触发过渡
     els.toast.classList.add("show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () {
       els.toast.classList.remove("show");
-      setTimeout(function () { els.toast.classList.add("hidden"); }, 260);
-    }, 1600);
+      setTimeout(function () { els.toast.classList.add("hidden"); }, 300);
+    }, 1800);
   }
 
   function normalizeType(t) {
     if (!t) return "";
-    if (TYPE_MAP[t]) return TYPE_MAP[t];
-    return t; // 已是中文
+    return TYPE_MAP[t] || t;
   }
 
-  // 背景色随换句轻微变化（同一浅色系内）
+  // 背景色随换句变化
   function shiftHue() {
-    var hue = Math.floor(Math.random() * 360);
-    document.documentElement.style.setProperty("--hue", String(hue));
+    document.documentElement.style.setProperty("--hue", String(Math.floor(Math.random() * 360)));
+  }
+
+  // 正文入场动画
+  function animateQuote() {
+    els.quoteText.classList.remove("pop");
+    void els.quoteText.offsetWidth;
+    els.quoteText.classList.add("pop");
+  }
+
+  function anyModalOpen() {
+    return !els.historyModal.classList.contains("hidden") ||
+           !els.favModal.classList.contains("hidden");
   }
 
   /* ---------- 渲染 ---------- */
   function renderQuote(q, opts) {
     opts = opts || {};
     state.current = q;
-    state.isFeatured = !!opts.featured;
 
     els.quoteText.textContent = q.text || "（空）";
-    var author = q.author || "";
-    var from = q.from || "";
-    els.quoteAuthor.textContent = author;
-    els.quoteAuthor.style.display = author ? "" : "none";
-    els.quoteFrom.textContent = from ? "《" + from + "》" : "";
-    els.quoteFrom.style.display = from ? "" : "none";
+
+    if (q.author) {
+      els.quoteAuthor.textContent = q.author;
+      els.quoteAuthor.classList.remove("hidden");
+    } else {
+      els.quoteAuthor.classList.add("hidden");
+    }
+
+    if (q.from) {
+      els.quoteFrom.textContent = "《" + q.from + "》";
+      els.quoteFrom.classList.remove("hidden");
+    } else {
+      els.quoteFrom.classList.add("hidden");
+    }
 
     var t = normalizeType(q.type);
     if (t) {
@@ -113,30 +132,35 @@
     }
 
     syncFavButton();
+    animateQuote();
     shiftHue();
   }
 
   function syncFavButton() {
     var favs = loadFavs();
     var hit = state.current && favs.some(function (f) {
-      return f.text === state.current.text && (f.author || "") === (state.current.author || "");
+      return f.text === state.current.text &&
+             (f.author || "") === (state.current.author || "");
     });
     els.favAddBtn.classList.toggle("active", !!hit);
   }
 
   /* ---------- 数据获取 ---------- */
-  function fetchJSON(url) {
-    return fetch(url, { cache: "no-cache" }).then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status + " for " + url);
-      return r.json();
-    });
+  function fetchJSON(url, timeout) {
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, timeout || DATA_TIMEOUT) : null;
+    return fetch(url, { cache: "no-cache", signal: ctrl ? ctrl.signal : undefined })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status + " " + url);
+        return r.json();
+      })
+      .finally(function () { if (timer) clearTimeout(timer); });
   }
 
-  // 实时一言 API
   function fetchHitokoto() {
-    return fetchJSON(API).then(function (d) {
+    return fetchJSON(API, API_TIMEOUT).then(function (d) {
       return {
-        text: d.hitokoto,
+        text: d.hitokoto || "",
         from: d.from || "",
         author: d.from_who || "",
         type: d.type || "",
@@ -145,7 +169,6 @@
     });
   }
 
-  // 从内置库随机取一条
   function randomLocalQuote() {
     var pool = state.quotes && state.quotes.length ? state.quotes : [];
     if (!pool.length) return null;
@@ -156,27 +179,39 @@
     };
   }
 
-  // 换一句：优先实时 API，失败回退本地库
+  // 换一句（也用于首页首次取句）：实时 API → 本地兜底 → 错误提示
   function nextQuote() {
+    if (state.busy) return;
+    state.busy = true;
     els.newBtn.disabled = true;
-    els.newBtn.textContent = "取句中…";
+    els.newBtn.classList.add("loading");
+    els.newBtnText.textContent = "取句中…";
+
     fetchHitokoto()
-      .then(function (q) { renderQuote(q, { featured: false }); })
+      .then(function (q) {
+        renderQuote(q, { featured: false });
+      })
       .catch(function () {
         var q = randomLocalQuote();
         if (q) {
           renderQuote(q, { featured: false });
-          toast("已切换到本地语录");
+          toast("网络开小差了，已切换本地语录");
         } else {
-          els.quoteText.textContent = "暂时无法获取句子，请稍后再试。";
-          els.quoteAuthor.textContent = "";
-          els.quoteFrom.textContent = "";
+          state.current = null;
+          els.quoteText.textContent = "暂时无法取句，请稍后再试";
+          els.quoteAuthor.classList.add("hidden");
+          els.quoteFrom.classList.add("hidden");
           els.quoteType.classList.add("hidden");
+          els.featuredBadge.classList.add("hidden");
+          syncFavButton();
+          toast("取句失败，请检查网络后重试");
         }
       })
-      .then(function () {
+      .finally(function () {
+        state.busy = false;
+        els.newBtn.classList.remove("loading");
+        els.newBtnText.textContent = "换一句";
         els.newBtn.disabled = false;
-        els.newBtn.textContent = "换一句";
       });
   }
 
@@ -184,17 +219,21 @@
   function loadFavs() {
     try {
       var raw = localStorage.getItem(FAV_KEY);
-      return raw ? JSON.parse(raw) : [];
+      var list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list : [];
     } catch (e) { return []; }
   }
+
   function saveFavs(list) {
     try { localStorage.setItem(FAV_KEY, JSON.stringify(list)); } catch (e) {}
   }
+
   function toggleFav() {
     if (!state.current) return;
     var favs = loadFavs();
     var idx = favs.findIndex(function (f) {
-      return f.text === state.current.text && (f.author || "") === (state.current.author || "");
+      return f.text === state.current.text &&
+             (f.author || "") === (state.current.author || "");
     });
     if (idx >= 0) {
       favs.splice(idx, 1);
@@ -215,7 +254,7 @@
   /* ---------- 复制 / 分享 ---------- */
   function buildText(q) {
     q = q || state.current;
-    if (!q) return "";
+    if (!q || !q.text) return "";
     var who = [];
     if (q.author) who.push(q.author);
     if (q.from) who.push("《" + q.from + "》");
@@ -231,6 +270,7 @@
       try {
         var ta = document.createElement("textarea");
         ta.value = text;
+        ta.setAttribute("readonly", "");
         ta.style.position = "fixed";
         ta.style.opacity = "0";
         document.body.appendChild(ta);
@@ -260,78 +300,108 @@
   }
 
   /* ---------- 弹层 ---------- */
-  function openModal(id) { document.getElementById(id).classList.remove("hidden"); }
-  function closeModal(id) { document.getElementById(id).classList.add("hidden"); }
+  function openModal(id) { $(id).classList.remove("hidden"); }
+  function closeModal(id) { $(id).classList.add("hidden"); }
+
+  function quoteToMetaText(quote) {
+    var who = [];
+    if (quote && quote.author) who.push(quote.author);
+    if (quote && quote.from) who.push("《" + quote.from + "》");
+    if (quote && quote.type) who.push(normalizeType(quote.type));
+    return who.join(" · ");
+  }
 
   function renderHistory() {
-    els.historyList.innerHTML = "";
+    var frag = document.createDocumentFragment();
     var snaps = (state.manifest && state.manifest.snapshots) || [];
+    var today = todayStr();
+
     if (!snaps.length) {
-      var li = document.createElement("li");
-      li.className = "empty-tip";
-      li.textContent = "还没有历史快照，明天再来吧。";
-      els.historyList.appendChild(li);
-      return;
-    }
-    snaps.forEach(function (s) {
-      var li = document.createElement("li");
-      li.className = "history-item";
-      li.innerHTML =
-        '<div class="history-date">' + (s.date || "") + (s.date === todayStr() ? " · 今日" : "") + '</div>' +
-        '<div class="history-text"></div>' +
-        '<div class="history-meta"></div>';
-      // 用 textContent 防 XSS
-      li.querySelector(".history-text").textContent = s.quote ? s.quote.text : "";
-      var who = [];
-      if (s.quote && s.quote.author) who.push(s.quote.author);
-      if (s.quote && s.quote.from) who.push("《" + s.quote.from + "》");
-      li.querySelector(".history-meta").textContent = who.join(" · ");
-      li.addEventListener("click", function () {
-        if (s.quote) {
+      var tip = document.createElement("li");
+      tip.className = "empty-tip";
+      tip.textContent = "历史从今天开始积累，每天清晨会自动归档一句。";
+      frag.appendChild(tip);
+    } else {
+      snaps.forEach(function (s) {
+        if (!s || !s.quote) return;
+        var li = document.createElement("li");
+        li.className = "item";
+
+        var dateDiv = document.createElement("div");
+        dateDiv.className = "item-date";
+        dateDiv.textContent = s.date || "";
+        if (s.date === today) {
+          var chip = document.createElement("span");
+          chip.className = "today-chip";
+          chip.textContent = "今日";
+          dateDiv.appendChild(chip);
+        }
+
+        var textDiv = document.createElement("div");
+        textDiv.className = "item-text";
+        textDiv.textContent = s.quote.text || "";
+
+        var metaDiv = document.createElement("div");
+        metaDiv.className = "item-meta";
+        metaDiv.textContent = quoteToMetaText(s.quote);
+
+        li.appendChild(dateDiv);
+        li.appendChild(textDiv);
+        li.appendChild(metaDiv);
+
+        li.addEventListener("click", function () {
           renderQuote({
-            text: s.quote.text, from: s.quote.from || "", author: s.quote.author || "",
-            type: s.quote.type || "", source: "snapshot"
+            text: s.quote.text, from: s.quote.from || "",
+            author: s.quote.author || "", type: s.quote.type || "",
+            source: "snapshot"
           }, { featured: true });
           closeModal("historyModal");
-          toast(s.date + " 的快照");
-        }
+          toast((s.date === today ? "今天" : s.date) + " 的快照");
+        });
+
+        frag.appendChild(li);
       });
-      els.historyList.appendChild(li);
-    });
+    }
+    els.historyList.innerHTML = "";
+    els.historyList.appendChild(frag);
   }
 
   function renderFavs() {
+    var frag = document.createDocumentFragment();
     var favs = loadFavs();
-    els.favList.innerHTML = "";
+
     if (!favs.length) {
       els.favEmpty.classList.remove("hidden");
-      return;
+    } else {
+      els.favEmpty.classList.add("hidden");
     }
-    els.favEmpty.classList.add("hidden");
+
     favs.forEach(function (f, i) {
       var li = document.createElement("li");
-      li.className = "fav-item";
+      li.className = "item";
+
       var row = document.createElement("div");
       row.className = "fav-row";
 
       var body = document.createElement("div");
-      body.style.flex = "1";
+      body.className = "fav-body";
+
       var txt = document.createElement("div");
-      txt.className = "fav-text";
-      txt.textContent = f.text;
+      txt.className = "item-text";
+      txt.textContent = f.text || "";
+
       var meta = document.createElement("div");
-      meta.className = "fav-meta";
-      var who = [];
-      if (f.author) who.push(f.author);
-      if (f.from) who.push("《" + f.from + "》");
-      meta.textContent = who.join(" · ");
+      meta.className = "item-meta";
+      meta.textContent = quoteToMetaText(f);
+
       body.appendChild(txt);
       body.appendChild(meta);
 
       var del = document.createElement("button");
       del.className = "fav-del";
       del.type = "button";
-      del.setAttribute("aria-label", "删除");
+      del.setAttribute("aria-label", "删除这条收藏");
+      del.title = "删除";
       del.textContent = "×";
       del.addEventListener("click", function (e) {
         e.stopPropagation();
@@ -354,35 +424,30 @@
       row.appendChild(body);
       row.appendChild(del);
       li.appendChild(row);
-      els.favList.appendChild(li);
+      frag.appendChild(li);
     });
+
+    els.favList.innerHTML = "";
+    els.favList.appendChild(frag);
   }
 
   /* ---------- 初始化 ---------- */
   function init() {
     els.dateLabel.textContent = fmtDateLabel(new Date());
 
-    // 并行加载快照清单与本地兜底库（历史回看 / 收藏兜底用）
-    var pManifest = fetchJSON(MANIFEST_URL).catch(function () { return null; });
-    var pQuotes = fetchJSON(QUOTES_URL).catch(function () { return { quotes: [] }; });
+    // 并行加载快照清单与本地兜底库
+    var pManifest = fetchJSON(MANIFEST_URL, DATA_TIMEOUT).catch(function () { return null; });
+    var pQuotes = fetchJSON(QUOTES_URL, DATA_TIMEOUT).catch(function () { return { quotes: [] }; });
 
     Promise.all([pManifest, pQuotes]).then(function (res) {
       state.manifest = res[0];
       state.quotes = (res[1] && res[1].quotes) || [];
-
-      // 完全随机模式：每次进入页面都实时随机取一句（全分类），
-      // 不再固定展示“今日精选”快照；每日快照仅保留在「历史回看」中。
-      fetchHitokoto()
-        .then(function (q) { renderQuote(q, { featured: false }); })
-        .catch(function () {
-          var q = randomLocalQuote();
-          if (q) renderQuote(q, { featured: false });
-          else els.quoteText.textContent = "欢迎使用每日一句，点「换一句」看看吧。";
-        });
+      // 首次进入：直接随机取一句
+      nextQuote();
     });
 
-    // 事件绑定
-    els.newBtn.addEventListener("click", nextQuote);
+    // 事件
+    els.newBtn.addEventListener("click", function () { this.blur(); nextQuote(); });
     els.favAddBtn.addEventListener("click", toggleFav);
     els.copyBtn.addEventListener("click", doCopy);
     els.shareBtn.addEventListener("click", doShare);
@@ -392,11 +457,29 @@
     document.querySelectorAll("[data-close]").forEach(function (b) {
       b.addEventListener("click", function () { closeModal(b.getAttribute("data-close")); });
     });
+
     [els.historyModal, els.favModal].forEach(function (m) {
       m.addEventListener("click", function (e) { if (e.target === m) m.classList.add("hidden"); });
     });
+
+    // 键盘：Esc 关闭；空格 / → / Enter / N 换一句（避免在按钮/输入态误触）
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") { closeModal("historyModal"); closeModal("favModal"); }
+      if (e.key === "Escape") {
+        closeModal("historyModal");
+        closeModal("favModal");
+        return;
+      }
+      if (anyModalOpen()) return;
+      var ae = document.activeElement;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" ||
+                 ae.tagName === "SELECT" || ae.tagName === "BUTTON" || ae.isContentEditable)) {
+        return;
+      }
+      if (e.key === " " || e.key === "ArrowRight" || e.key === "Enter" ||
+          e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        nextQuote();
+      }
     });
   }
 
