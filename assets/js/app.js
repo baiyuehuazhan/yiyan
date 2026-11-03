@@ -276,15 +276,296 @@
       .catch(function () { toast("复制失败"); });
   }
 
+  /* ---------- 分享：把当前这句画成卡片图 ---------- */
+  var CARD_W = 1080, CARD_H = 1350;   // 4:5，朋友圈/小红书都好发
+
+  var CLAUSE_PUNCT = "，。；：！？、,.!?;:";
+
+  // 先按标点切成语义块，避免"远行/客。"这种把字切开的断法
+  function splitClauses(text) {
+    var out = [], buf = "";
+    for (var i = 0; i < text.length; i++) {
+      buf += text.charAt(i);
+      if (CLAUSE_PUNCT.indexOf(text.charAt(i)) >= 0) { out.push(buf); buf = ""; }
+    }
+    if (buf) out.push(buf);
+    return out;
+  }
+
+  // 单块本身就超宽时，退化成逐字硬切
+  function hardWrap(ctx, text, maxWidth) {
+    var lines = [], line = "";
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      var test = line + ch;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = ch;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  // 按像素宽度排行：能整块放下就整块放，放不下才换行
+  function wrapLines(ctx, text, maxWidth) {
+    text = String(text || "").replace(/\s+/g, " ").trim();
+    var clauses = splitClauses(text);
+    var lines = [], line = "";
+
+    for (var i = 0; i < clauses.length; i++) {
+      var c = clauses[i];
+      if (!c) continue;
+
+      if (!line) {
+        if (ctx.measureText(c).width <= maxWidth) {
+          line = c;
+        } else {
+          var p1 = hardWrap(ctx, c, maxWidth);
+          for (var a = 0; a < p1.length - 1; a++) lines.push(p1[a]);
+          line = p1[p1.length - 1];
+        }
+        continue;
+      }
+
+      if (ctx.measureText(line + c).width <= maxWidth) {
+        line += c;
+      } else {
+        lines.push(line);
+        if (ctx.measureText(c).width <= maxWidth) {
+          line = c;
+        } else {
+          var p2 = hardWrap(ctx, c, maxWidth);
+          for (var b = 0; b < p2.length - 1; b++) lines.push(p2[b]);
+          line = p2[p2.length - 1];
+        }
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function drawQuoteCard(q) {
+    var canvas = document.createElement("canvas");
+    canvas.width = CARD_W;
+    canvas.height = CARD_H;
+    var ctx = canvas.getContext("2d");
+
+    var PAD = 64;                       // 画布边 → 纸面
+    var INNER = 96;                     // 纸面 → 内容
+    var left = PAD + INNER;
+    var right = CARD_W - PAD - INNER;
+    var contentW = right - left;
+
+    var PAPER = "#f2ede3", SHEET = "#fffdf8";
+    var INK = "#1b1814", INK_SOFT = "#6b6358", INK_FAINT = "#8b8173";
+    var ACCENT = "#9c3f2e";
+    var RULE = "rgba(27,24,20,0.14)", RULE_SOFT = "rgba(27,24,20,0.075)";
+    var serif = '"Noto Serif SC", "Songti SC", "STSong", Georgia, serif';
+    var sans = '"PingFang SC", "Microsoft YaHei", -apple-system, sans-serif';
+
+    // 纸底 + 纸面
+    ctx.fillStyle = PAPER;
+    ctx.fillRect(0, 0, CARD_W, CARD_H);
+    ctx.fillStyle = SHEET;
+    ctx.fillRect(PAD, PAD, CARD_W - PAD * 2, CARD_H - PAD * 2);
+    ctx.strokeStyle = RULE;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(PAD, PAD, CARD_W - PAD * 2, CARD_H - PAD * 2);
+    // 顶部赭红压线
+    ctx.fillStyle = ACCENT;
+    ctx.fillRect(PAD, PAD, CARD_W - PAD * 2, 5);
+
+    ctx.textBaseline = "top";
+
+    // 日期
+    var d = new Date();
+    var wd = ["日", "一", "二", "三", "四", "五", "六"][d.getDay()];
+    var dateStr = d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + d.getDate() + "日 · 周" + wd;
+    ctx.beginPath();
+    ctx.arc(left - 24, PAD + 82, 5, 0, Math.PI * 2);
+    ctx.fillStyle = ACCENT;
+    ctx.fill();
+    ctx.font = "500 26px " + sans;
+    ctx.fillStyle = INK_SOFT;
+    ctx.textAlign = "left";
+    ctx.fillText(dateStr, left, PAD + 68);
+
+    // 顶部分隔线
+    ctx.strokeStyle = RULE_SOFT;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(left, PAD + 134);
+    ctx.lineTo(right, PAD + 134);
+    ctx.stroke();
+
+    // ---- 中部内容块，垂直居中 ----
+    var eyebrow = normalizeType(q.type);
+    var who = [];
+    if (q.author) who.push(q.author);
+    if (q.from) who.push("《" + q.from + "》");
+    var metaText = who.length ? "—— " + who.join(" ") : "";
+
+    var fs = 74;
+    ctx.font = "500 " + fs + "px " + serif;
+    var lines = wrapLines(ctx, q.text || "", contentW);
+
+    // 短句自动放大，撑出海报感
+    if (lines.length === 1) {
+      var w1 = ctx.measureText(lines[0]).width;
+      if (w1 > 0 && w1 < contentW * 0.82) {
+        var bigger = Math.min(116, Math.floor(fs * (contentW * 0.82) / w1));
+        if (bigger > fs) {
+          ctx.font = "500 " + bigger + "px " + serif;
+          var testLines = wrapLines(ctx, q.text || "", contentW);
+          if (testLines.length === 1) { fs = bigger; lines = testLines; }
+          else { ctx.font = "500 " + fs + "px " + serif; }
+        }
+      }
+    }
+
+    if (lines.length > 3) {
+      fs = 60;
+      ctx.font = "500 " + fs + "px " + serif;
+      lines = wrapLines(ctx, q.text || "", contentW);
+    }
+    if (lines.length > 4) {
+      fs = 50;
+      ctx.font = "500 " + fs + "px " + serif;
+      lines = wrapLines(ctx, q.text || "", contentW);
+    }
+
+    var lh = 1.72;
+    var textH = lines.length * fs * lh;
+    var eyebrowH = eyebrow ? 34 : 0;
+    var gap1 = eyebrow ? 52 : 0;
+    var metaH = metaText ? 40 : 0;
+    var gap2 = metaText ? 70 : 0;
+    var blockH = eyebrowH + gap1 + textH + gap2 + metaH;
+
+    // 直接在整张纸面里垂直居中，别让日期栏和页脚把重心带偏
+    var centerY = (PAD + CARD_H - PAD) / 2;
+    var y = centerY - blockH / 2;
+
+    // 眉标：两侧短线夹分类名
+    if (eyebrow) {
+      ctx.font = "500 24px " + sans;
+      ctx.fillStyle = ACCENT;
+      ctx.textAlign = "center";
+      ctx.fillText(eyebrow, CARD_W / 2, y + 4);
+      var tw = ctx.measureText(eyebrow).width;
+      var cy = y + eyebrowH / 2 + 2;
+      ctx.strokeStyle = "rgba(156,63,46,0.38)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(CARD_W / 2 - tw / 2 - 58, cy);
+      ctx.lineTo(CARD_W / 2 - tw / 2 - 18, cy);
+      ctx.moveTo(CARD_W / 2 + tw / 2 + 18, cy);
+      ctx.lineTo(CARD_W / 2 + tw / 2 + 58, cy);
+      ctx.stroke();
+      y += eyebrowH + gap1;
+    }
+
+    // 正文
+    ctx.font = "500 " + fs + "px " + serif;
+    ctx.fillStyle = INK;
+    ctx.textAlign = "center";
+    for (var i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], CARD_W / 2, y + i * fs * lh + (fs * lh - fs) / 2);
+    }
+    y += textH + gap2;
+
+    // 落款
+    if (metaText) {
+      ctx.font = "400 28px " + serif;
+      ctx.fillStyle = INK_SOFT;
+      ctx.textAlign = "center";
+      ctx.fillText(metaText, CARD_W / 2, y + 4);
+    }
+
+    // 底部分隔线 + 页脚
+    ctx.strokeStyle = RULE_SOFT;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(left, CARD_H - PAD - 140);
+    ctx.lineTo(right, CARD_H - PAD - 140);
+    ctx.stroke();
+
+    ctx.font = "500 22px " + sans;
+    ctx.fillStyle = INK_FAINT;
+    ctx.textAlign = "left";
+    ctx.fillText("每 日 一 句", left, CARD_H - PAD - 100);
+    ctx.textAlign = "right";
+    ctx.fillText("yiyan.hzxq.asia", right, CARD_H - PAD - 100);
+
+    return canvas;
+  }
+
+  function canvasToBlob(canvas) {
+    return new Promise(function (resolve, reject) {
+      if (canvas.toBlob) {
+        canvas.toBlob(function (b) {
+          b ? resolve(b) : reject(new Error("toBlob 返回空"));
+        }, "image/png");
+      } else {
+        try {
+          var dataUrl = canvas.toDataURL("image/png");
+          var bin = atob(dataUrl.split(",")[1]);
+          var arr = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          resolve(new Blob([arr], { type: "image/png" }));
+        } catch (e) { reject(e); }
+      }
+    });
+  }
+
+  function downloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 3000);
+  }
+
+  function waitFonts() {
+    if (document.fonts && document.fonts.ready) {
+      return document.fonts.ready.catch(function () { return null; });
+    }
+    return Promise.resolve();
+  }
+
   function doShare() {
     if (!state.current) return;
-    var text = buildText(state.current) + "  #每日一句";
-    if (navigator.share) {
-      navigator.share({ title: "每日一句", text: text }).catch(function () {});
-      return;
-    }
-    copyText(text).then(function () { toast("分享文案已复制"); })
-      .catch(function () { toast("复制失败"); });
+    var q = state.current;
+
+    toast("正在生成图片…");
+
+    waitFonts().then(function () {
+      var canvas = drawQuoteCard(q);
+      return canvasToBlob(canvas);
+    }).then(function (blob) {
+      var ymd = new Date().toISOString().slice(0, 10);
+      var filename = "每日一句-" + ymd + ".png";
+      var file = null;
+      try { file = new File([blob], filename, { type: "image/png" }); } catch (e) {}
+
+      // 触屏设备优先走系统分享（能直接发微信/相册）；桌面直接下载
+      var isTouch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+      if (isTouch && file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: "每日一句" })
+          .catch(function () { downloadBlob(blob, filename); });
+        return;
+      }
+      downloadBlob(blob, filename);
+      toast("图片已保存");
+    }).catch(function () {
+      toast("生成图片失败");
+    });
   }
 
   /* ---------- 弹层 ---------- */
