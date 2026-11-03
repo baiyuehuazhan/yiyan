@@ -246,7 +246,7 @@
     var who = [];
     if (q.author) who.push(q.author);
     if (q.from) who.push("《" + q.from + "》");
-    var tail = who.length ? "—— " + who.join(" · ") : "";
+    var tail = who.length ? "—— " + who.join(" ") : "";
     return "「" + q.text + "」" + (tail ? " " + tail : "");
   }
 
@@ -521,17 +521,6 @@
     });
   }
 
-  function downloadBlob(blob, filename) {
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(url); }, 3000);
-  }
-
   function waitFonts() {
     if (document.fonts && document.fonts.ready) {
       return document.fonts.ready.catch(function () { return null; });
@@ -539,32 +528,49 @@
     return Promise.resolve();
   }
 
+  // 推广版文案：多带一行站点署名，粘到微信/QQ 里像样
+  function buildShareText(q) {
+    q = q || state.current;
+    if (!q || !q.text) return "";
+    var who = [];
+    if (q.author) who.push(q.author);
+    if (q.from) who.push("《" + q.from + "》");
+    var tail = who.length ? " —— " + who.join(" ") : "";
+    return "「" + q.text + "」" + tail + "\n—— 每日一句 · yiyan.hzxq.asia";
+  }
+
   function doShare() {
     if (!state.current) return;
     var q = state.current;
+    var text = buildShareText(q);
 
-    toast("正在生成图片…");
+    // 触屏设备：优先调系统分享，能直接把图片发进微信/QQ 或存相册
+    var isTouch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    if (isTouch && navigator.share) {
+      toast("正在准备分享…");
+      waitFonts().then(function () {
+        return canvasToBlob(drawQuoteCard(q));
+      }).then(function (blob) {
+        var file = null;
+        try { file = new File([blob], "每日一句.png", { type: "image/png" }); } catch (e) {}
+        if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+          return navigator.share({ files: [file], title: "每日一句" })
+            .catch(function () { throw new Error("cancelled"); });
+        }
+        throw new Error("no-file-share");
+      }).catch(function () {
+        // 分享被取消或设备不支持发图 → 退回复制文案
+        copyText(text).then(function () { toast("已复制，去微信粘贴"); })
+          .catch(function () { toast("复制失败"); });
+      });
+      return;
+    }
 
-    waitFonts().then(function () {
-      var canvas = drawQuoteCard(q);
-      return canvasToBlob(canvas);
-    }).then(function (blob) {
-      var ymd = new Date().toISOString().slice(0, 10);
-      var filename = "每日一句-" + ymd + ".png";
-      var file = null;
-      try { file = new File([blob], filename, { type: "image/png" }); } catch (e) {}
-
-      // 触屏设备优先走系统分享（能直接发微信/相册）；桌面直接下载
-      var isTouch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
-      if (isTouch && file && navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file], title: "每日一句" })
-          .catch(function () { downloadBlob(blob, filename); });
-        return;
-      }
-      downloadBlob(blob, filename);
-      toast("图片已保存");
+    // 桌面：不再弹 Windows 分享面板（里面没有微信），直接复制文案
+    copyText(text).then(function () {
+      toast("已复制，去微信 / QQ 粘贴");
     }).catch(function () {
-      toast("生成图片失败");
+      toast("复制失败");
     });
   }
 
