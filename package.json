@@ -2,9 +2,8 @@
   "name": "daily-quote",
   "version": "1.0.0",
   "private": true,
-  "description": "每日一句 · 极简有意境的纯静态每日语录站，直连一言 API + GitHub Actions 每日快照兜底。",
+  "description": "每日一句 · 极简有意境的纯静态每日语录站，直连一言 API，内置离线语录兜底。",
   "scripts": {
-    "fetch": "node scripts/fetch.js",
     "start": "python3 -m http.server 8080",
     "serve": "python3 -m http.server 8080"
   },

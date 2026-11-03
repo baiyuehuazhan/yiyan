@@ -6,11 +6,9 @@
   "use strict";
 
   var API = "https://v1.hitokoto.cn/?encode=json"; // 全分类：动画/漫画/游戏/文学/原创/网络/其他/影视/诗词/网易云/哲学/抖机灵
-  var MANIFEST_URL = "data/manifest.json";
-  var QUOTES_URL = "data/quotes.json";
   var FAV_KEY = "dq_favs_v1";
-  var API_TIMEOUT = 8000;   // 实时 API 超时（毫秒）
-  var DATA_TIMEOUT = 6000;  // 本地 data/*.json 超时
+  var API_TIMEOUT = 8000;   // 请求超时（毫秒）
+  var DEDUP_TRIES = 2;      // 拿到与当前相同的句子时，最多再重取几次
 
   var TYPE_MAP = {
     a: "动画", b: "漫画", c: "游戏", d: "文学", e: "原创", f: "来自网络",
@@ -21,7 +19,6 @@
 
   var els = {
     dateLabel: $("dateLabel"),
-    featuredBadge: $("featuredBadge"),
     quoteText: $("quoteText"),
     quoteAuthor: $("quoteAuthor"),
     quoteFrom: $("quoteFrom"),
@@ -31,10 +28,7 @@
     favAddBtn: $("favAddBtn"),
     copyBtn: $("copyBtn"),
     shareBtn: $("shareBtn"),
-    historyBtn: $("historyBtn"),
     favBtn: $("favBtn"),
-    historyModal: $("historyModal"),
-    historyList: $("historyList"),
     favModal: $("favModal"),
     favList: $("favList"),
     favEmpty: $("favEmpty"),
@@ -42,20 +36,13 @@
   };
 
   var state = {
-    current: null,     // 当前展示 { text, from, author, type, source }
-    manifest: null,
-    quotes: [],
-    busy: false        // 换一句进行中，防重复触发
+    current: null      // 当前展示 { text, from, author, type, source }
   };
 
+  var inflight = null;   // 当前在飞的请求控制器（新请求会打断旧的）
+  var reqToken = 0;      // 请求序号，只有最后一次的结果会被渲染
+
   /* ---------- 工具 ---------- */
-  function pad2(n) { return String(n).padStart(2, "0"); }
-
-  function todayStr(d) {
-    d = d || new Date();
-    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
-  }
-
   function fmtDateLabel(d) {
     var wd = ["日", "一", "二", "三", "四", "五", "六"][d.getDay()];
     return d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + d.getDate() + "日 · 周" + wd;
@@ -92,13 +79,11 @@
   }
 
   function anyModalOpen() {
-    return !els.historyModal.classList.contains("hidden") ||
-           !els.favModal.classList.contains("hidden");
+    return !els.favModal.classList.contains("hidden");
   }
 
   /* ---------- 渲染 ---------- */
-  function renderQuote(q, opts) {
-    opts = opts || {};
+  function renderQuote(q) {
     state.current = q;
 
     els.quoteText.textContent = q.text || "（空）";
@@ -125,12 +110,6 @@
       els.quoteType.classList.add("hidden");
     }
 
-    if (opts.featured) {
-      els.featuredBadge.classList.remove("hidden");
-    } else {
-      els.featuredBadge.classList.add("hidden");
-    }
-
     syncFavButton();
     animateQuote();
     shiftHue();
@@ -146,19 +125,22 @@
   }
 
   /* ---------- 数据获取 ---------- */
-  function fetchJSON(url, timeout) {
-    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, timeout || DATA_TIMEOUT) : null;
-    return fetch(url, { cache: "no-cache", signal: ctrl ? ctrl.signal : undefined })
+  function fetchJSON(url, timeout, ctrl) {
+    if (!ctrl) ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, timeout || API_TIMEOUT);
+    return fetch(url, { cache: "no-store", signal: ctrl.signal })
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status + " " + url);
         return r.json();
       })
-      .finally(function () { if (timer) clearTimeout(timer); });
+      .finally(function () { clearTimeout(timer); });
   }
 
-  function fetchHitokoto() {
-    return fetchJSON(API, API_TIMEOUT).then(function (d) {
+  function fetchHitokoto(ctrl) {
+    // 一言对同一个 URL 会命中服务端缓存，连点几次都返回同一句。
+    // 带上随机参数强制换一条。
+    var url = API + "&_=" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    return fetchJSON(url, API_TIMEOUT, ctrl).then(function (d) {
       return {
         text: d.hitokoto || "",
         from: d.from || "",
@@ -169,49 +151,55 @@
     });
   }
 
-  function randomLocalQuote() {
-    var pool = state.quotes && state.quotes.length ? state.quotes : [];
-    if (!pool.length) return null;
-    var q = pool[Math.floor(Math.random() * pool.length)];
-    return {
-      text: q.text, from: q.from || "", author: q.author || "",
-      type: q.type || "", source: "local"
-    };
+  // 取一条与当前不同的句子；撞车就再取，最多 DEDUP_TRIES 次
+  function fetchDistinct(tries, ctrl) {
+    return fetchHitokoto(ctrl).then(function (q) {
+      var same = state.current && q.text && q.text === state.current.text;
+      if (same && tries < DEDUP_TRIES) {
+        return fetchDistinct(tries + 1, ctrl);
+      }
+      return q;
+    });
   }
 
-  // 换一句（也用于首页首次取句）：实时 API → 本地兜底 → 错误提示
+  // 换一句（也用于首页首次取句）：只走在线接口，失败直接提示，不做本地兜底
+  // 连点不吞：新的一次会打断上一次请求，只有最后一次的结果会被渲染
   function nextQuote() {
-    if (state.busy) return;
-    state.busy = true;
-    els.newBtn.disabled = true;
+    var token = ++reqToken;
+
+    if (inflight) {
+      inflight.__interrupted = true;   // 标记：这次 abort 是新点击造成的，不是超时
+      try { inflight.abort(); } catch (e) {}
+    }
+    var ctrl = new AbortController();
+    ctrl.__interrupted = false;
+    inflight = ctrl;
+
     els.newBtn.classList.add("loading");
     els.newBtnText.textContent = "取句中…";
 
-    fetchHitokoto()
+    fetchDistinct(0, ctrl)
       .then(function (q) {
-        renderQuote(q, { featured: false });
+        if (token !== reqToken) return;          // 已被后来的点击取代
+        renderQuote(q);
       })
-      .catch(function () {
-        var q = randomLocalQuote();
-        if (q) {
-          renderQuote(q, { featured: false });
-          toast("网络开小差了，已切换本地语录");
-        } else {
-          state.current = null;
-          els.quoteText.textContent = "暂时无法取句，请稍后再试";
-          els.quoteAuthor.classList.add("hidden");
-          els.quoteFrom.classList.add("hidden");
-          els.quoteType.classList.add("hidden");
-          els.featuredBadge.classList.add("hidden");
-          syncFavButton();
-          toast("取句失败，请检查网络后重试");
-        }
+      .catch(function (err) {
+        if (token !== reqToken) return;
+        // 只有"被新点击打断"才静默退出，超时和网络错误都要如实报出来
+        if (err && err.name === "AbortError" && ctrl.__interrupted) return;
+        state.current = null;
+        els.quoteText.textContent = "暂时无法取句，请稍后再试";
+        els.quoteAuthor.classList.add("hidden");
+        els.quoteFrom.classList.add("hidden");
+        els.quoteType.classList.add("hidden");
+        syncFavButton();
+        toast("取句失败，请检查网络后重试");
       })
       .finally(function () {
-        state.busy = false;
+        if (token !== reqToken) return;
+        inflight = null;
         els.newBtn.classList.remove("loading");
         els.newBtnText.textContent = "换一句";
-        els.newBtn.disabled = false;
       });
   }
 
@@ -311,61 +299,6 @@
     return who.join(" · ");
   }
 
-  function renderHistory() {
-    var frag = document.createDocumentFragment();
-    var snaps = (state.manifest && state.manifest.snapshots) || [];
-    var today = todayStr();
-
-    if (!snaps.length) {
-      var tip = document.createElement("li");
-      tip.className = "empty-tip";
-      tip.textContent = "历史从今天开始积累，每天清晨会自动归档一句。";
-      frag.appendChild(tip);
-    } else {
-      snaps.forEach(function (s) {
-        if (!s || !s.quote) return;
-        var li = document.createElement("li");
-        li.className = "item";
-
-        var dateDiv = document.createElement("div");
-        dateDiv.className = "item-date";
-        dateDiv.textContent = s.date || "";
-        if (s.date === today) {
-          var chip = document.createElement("span");
-          chip.className = "today-chip";
-          chip.textContent = "今日";
-          dateDiv.appendChild(chip);
-        }
-
-        var textDiv = document.createElement("div");
-        textDiv.className = "item-text";
-        textDiv.textContent = s.quote.text || "";
-
-        var metaDiv = document.createElement("div");
-        metaDiv.className = "item-meta";
-        metaDiv.textContent = quoteToMetaText(s.quote);
-
-        li.appendChild(dateDiv);
-        li.appendChild(textDiv);
-        li.appendChild(metaDiv);
-
-        li.addEventListener("click", function () {
-          renderQuote({
-            text: s.quote.text, from: s.quote.from || "",
-            author: s.quote.author || "", type: s.quote.type || "",
-            source: "snapshot"
-          }, { featured: true });
-          closeModal("historyModal");
-          toast((s.date === today ? "今天" : s.date) + " 的快照");
-        });
-
-        frag.appendChild(li);
-      });
-    }
-    els.historyList.innerHTML = "";
-    els.historyList.appendChild(frag);
-  }
-
   function renderFavs() {
     var frag = document.createDocumentFragment();
     var favs = loadFavs();
@@ -417,7 +350,7 @@
         renderQuote({
           text: f.text, from: f.from || "", author: f.author || "",
           type: f.type || "", source: f.source || "local"
-        }, { featured: false });
+        });
         closeModal("favModal");
       });
 
@@ -435,37 +368,27 @@
   function init() {
     els.dateLabel.textContent = fmtDateLabel(new Date());
 
-    // 并行加载快照清单与本地兜底库
-    var pManifest = fetchJSON(MANIFEST_URL, DATA_TIMEOUT).catch(function () { return null; });
-    var pQuotes = fetchJSON(QUOTES_URL, DATA_TIMEOUT).catch(function () { return { quotes: [] }; });
-
-    Promise.all([pManifest, pQuotes]).then(function (res) {
-      state.manifest = res[0];
-      state.quotes = (res[1] && res[1].quotes) || [];
-      // 首次进入：直接随机取一句
-      nextQuote();
-    });
+    // 首次进入：直接取一句
+    nextQuote();
 
     // 事件
     els.newBtn.addEventListener("click", function () { this.blur(); nextQuote(); });
     els.favAddBtn.addEventListener("click", toggleFav);
     els.copyBtn.addEventListener("click", doCopy);
     els.shareBtn.addEventListener("click", doShare);
-    els.historyBtn.addEventListener("click", function () { renderHistory(); openModal("historyModal"); });
     els.favBtn.addEventListener("click", function () { renderFavs(); openModal("favModal"); });
 
     document.querySelectorAll("[data-close]").forEach(function (b) {
       b.addEventListener("click", function () { closeModal(b.getAttribute("data-close")); });
     });
 
-    [els.historyModal, els.favModal].forEach(function (m) {
-      m.addEventListener("click", function (e) { if (e.target === m) m.classList.add("hidden"); });
+    els.favModal.addEventListener("click", function (e) {
+      if (e.target === els.favModal) els.favModal.classList.add("hidden");
     });
 
     // 键盘：Esc 关闭；空格 / → / Enter / N 换一句（避免在按钮/输入态误触）
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") {
-        closeModal("historyModal");
         closeModal("favModal");
         return;
       }
